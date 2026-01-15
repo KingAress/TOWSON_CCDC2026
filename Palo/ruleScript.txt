@@ -2,7 +2,7 @@
 #set cli scripting-mode on
 #configure
 
-set deviceconfig system ip-address 192.168.254.202
+set deviceconfig system ip-address 172.20.242.150
 set deviceconfig system netmask 255.255.255.0
 set deviceconfig system update-server updates.paloaltonetworks.com
 set deviceconfig system service disable-telnet yes

@@ -29,11 +29,21 @@ set zone external network layer3
 set zone internal network zone-protection-profile zProt
 set zone external network zone-protection-profile zProt
 
+# mgmt profile 
+set network interface-management-profile MgmtProfile
+set network interface-management-profile MgmtProfile services https yes
+set network interface-management-profile MgmtProfile services ssh yes
+set network interface-management-profile MgmtProfile services http no
+set network interface-management-profile MgmtProfile services telnet no
+
 # INTERFACES ASSIGNED TO ZONES
 set network interface ethernet1/1 layer3
 set network interface ethernet1/1 zone external
+set network interface ethernet ethernet1/2 ip 172.16.101.254/24
 set network interface ethernet1/2 layer3
 set network interface ethernet1/2 zone internal
+set network interface ethernet ethernet1/2 ip 172.20.240.254/24
+set network interface ethernet ethernet1/2 interface-management-profile InternalMgmtProfile
 
 # ADDRESS OBJECTS
 set address PrivIPBlock ip-netmask 10.0.0.0/8

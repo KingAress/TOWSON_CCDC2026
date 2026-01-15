@@ -43,7 +43,7 @@ set network interface ethernet ethernet1/2 ip 172.16.101.254/24
 set network interface ethernet1/2 layer3
 set network interface ethernet1/2 zone internal
 set network interface ethernet ethernet1/2 ip 172.20.240.254/24
-set network interface ethernet ethernet1/2 interface-management-profile InternalMgmtProfile
+set network interface ethernet ethernet1/2 interface-management-profile MgmtProfile
 
 # ADDRESS OBJECTS
 set address PrivIPBlock ip-netmask 10.0.0.0/8

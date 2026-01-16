@@ -514,12 +514,12 @@
             </entry>
             <entry name="Splunk514">
               <protocol>
-                <udp>
+                <tcp>
                   <port>514</port>
                   <override>
                     <no/>
                   </override>
-                </udp>
+                </tcp>
               </protocol>
             </entry>
             <entry name="WebMailSMTP">

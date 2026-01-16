@@ -1,79 +1,65 @@
-#!/bin/bash
+# Empty all rules
+iptables -t filter -F
+iptables -t filter -X
 
-# ============================================================
-# iptables Skeleton Script
-# Purpose: Establish a secure baseline firewall using iptables
-# Scope: Debian / RHEL-family systems
-# ============================================================
+# Block everything by default
+iptables -t filter -P INPUT DROP
+iptables -t filter -P FORWARD DROP
+iptables -t filter -P OUTPUT DROP
 
-set -euo pipefail
+# Authorize already established connections
+iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -A OUTPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -t filter -A INPUT -i lo -j ACCEPT
+iptables -t filter -A OUTPUT -o lo -j ACCEPT
 
-# ---------- Check if running as root ----------
-if [[ ${EUID:-0} -ne 0 ]]; then
-    echo "[!] This script must be run as root."
-    exit 1
-fi
+# ICMP (Ping)
+iptables -t filter -A INPUT -p icmp -j ACCEPT
+iptables -t filter -A OUTPUT -p icmp -j ACCEPT
 
-# ---------- Verify iptables ----------
-echo "[*] Checking for iptables..."
-if ! command -v iptables >/dev/null 2>&1; then
-    echo "[!] iptables not found. Install it before running this script."
-    exit 1
-fi
-echo "[+] iptables is available."
+# DNS (Needed for curl, and updates)
+iptables -t filter -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -t filter -A OUTPUT -p udp --dport 53 -j ACCEPT
 
-# ---------- Flush Existing Rules ----------
-echo "[*] Flushing existing rules..."
+# HTTP/HTTPS
+iptables -t filter -A OUTPUT -p tcp --dport 80 -j ACCEPT
+iptables -t filter -A OUTPUT -p tcp --dport 443 -j ACCEPT
 
-iptables -F
-iptables -X
-iptables -t nat -F
-iptables -t nat -X
-iptables -t mangle -F
-iptables -t mangle -X
+# NTP (server time)
+iptables -t filter -A OUTPUT -p udp --dport 123 -j ACCEPT
 
-# ---------- Default Policies ----------
-echo "[*] Setting default policies..."
+# Splunk
+iptables -t filter -A OUTPUT -p tcp --dport 8000 -j ACCEPT
+iptables -t filter -A OUTPUT -p tcp --dport 8089 -j ACCEPT
+iptables -t filter -A OUTPUT -p tcp --dport 9997 -j ACCEPT
 
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
+# Splunk Web UI
+iptables -t filter -A INPUT -p tcp --dport 8000 -j ACCEPT
 
-# ---------- Baseline Rules ----------
-echo "[*] Applying baseline rules..."
+# Splunk Forwarder
+iptables -t filter -A INPUT -p tcp --dport 8089 -j ACCEPT
+iptables -t filter -A INPUT -p tcp --dport 9997 -j ACCEPT
 
-iptables -A INPUT -i lo -j ACCEPT # Allow loopback traffic
+# Splunk Syslog (PA)
+iptables -t filter -A INPUT -p tcp --dport 514 -j ACCEPT
 
-# ---------- Rule Section ----------
-echo "[*] Setting rules..."
+# Bad Flag Combinations
+# Prevent an attacker from sending flags for reconnaissance. 
+# These kinds of packets  typically are not done as an attack.
+iptables -N BAD_FLAGS
+iptables -A INPUT -p tcp -j BAD_FLAGS
 
-iptables -A INPUT -p tcp --dport 2222 -m conntrack --ctstate NEW -j ACCEPT # Hardened SSH for recovery
-iptables -A INPUT -p tcp --dport 8000 -m conntrack --ctstate NEW -j ACCEPT # Splunk UI
-iptables -A INPUT -p tcp --dport 9997 -m conntrack --ctstate NEW -j ACCEPT # Splunk Universal Forwarder
+# Fragmented Packets
+iptables -A INPUT -f -j LOG --log-prefix "IT Fragmented "
+iptables -A INPUT -f -j DROP
 
+  # Set firewall rules
+  chmod +x $IPTABLES_SCRIPT
+  bash $IPTABLES_SCRIPT
 
+  if [ ! -d /etc/iptables ]; then
+    mkdir /etc/iptables
+  fi
 
-# SSH rate limiting
-iptables -A INPUT -p tcp --dport 2222 -m recent --set --name SSH
-iptables -A INPUT -p tcp --dport 2222 -m recent --update --seconds 60 --hitcount 4 --name SSH -j DROP
-
-echo "[*] Service rules applied."
-
-# ---------- Optional Logging ----------
-echo "[*] Adding rate-limited logging for dropped packets..."
-
-iptables -A INPUT -m limit --limit 5/min -j LOG \
-  --log-prefix "IPTABLES-DROP: " --log-level 4
- 
-# ---------- Persistence (Skeleton Only) ----------
-echo "[*] Persistence not enforced by this script."
-echo "    Debian: use iptables-persistent or netfilter-persistent"
-echo "    RHEL:   use iptables-services (service iptables save)"
-
-# ---------- Final Status ----------
-echo "[*] Final iptables rule set:"
-iptables -L -n -v --line-numbers
-
-echo "[+] Iptables script completed successfully."
-
-scp -T -J ccdc@10.23.65.6:10033 ./copy.txt zathras@192.168.255.17:/home/zathras/Desktop/copy.txt
+  # Save the rules
+  iptables-save > /etc/iptables/rules.v4

@@ -2,6 +2,9 @@
 #set cli scripting-mode on
 #configure
 
+# set cli scripting-mode on
+# configure
+
 set deviceconfig system ip-address 172.20.242.150
 set deviceconfig system netmask 255.255.255.0
 set deviceconfig system update-server updates.paloaltonetworks.com
@@ -48,6 +51,7 @@ set service WebMailPOP3 protocol tcp port 110
 set service WebMailIMAP protocol tcp port 143
 
 delete rulebase security
+
 set rulebase security rules KillReverse from internal to external source any destination PrivIPBlock application any service application-default action drop
 
 set rulebase security rules AllowICMP from any to any source any destination any application icmp service application-default action allow

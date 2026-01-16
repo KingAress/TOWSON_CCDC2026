@@ -1,0 +1,84 @@
+#Modified from https://github.com/UWStout-CCDC/CCDC-scripts/blob/master/firewall/PaloAlto/Regionals/SecureBaseScriptR.py#L207
+#set cli scripting-mode on
+#configure
+
+set deviceconfig system ip-address 172.20.242.150
+set deviceconfig system netmask 255.255.255.0
+set deviceconfig system update-server updates.paloaltonetworks.com
+set deviceconfig system service disable-telnet yes
+set deviceconfig system service disable-http yes
+set deviceconfig system service disable-snmp yes
+set deviceconfig system timezone US/Eastern
+set deviceconfig system login-banner "Hi from Towson <3"
+set deviceconfig system hostname PA-VM
+
+set network profiles zone-protection-profile zProt
+set network profiles zone-protection-profile zProt discard-overlapping-tcp-segment-mismatch yes
+set network profiles zone-protection-profile zProt discard-unknown-option yes
+set network profiles zone-protection-profile zProt tcp-reject-non-syn yes
+set network profiles zone-protection-profile zProt flood icmp enable yes
+set network profiles zone-protection-profile zProt flood udp enable yes
+set network profiles zone-protection-profile zProt flood other-ip enable yes
+set network profiles zone-protection-profile zProt flood icmpv6 enable yes
+
+set zone internal network layer3
+set zone external network layer3
+set zone internal network zone-protection-profile zProt
+set zone external network zone-protection-profile zProt
+
+set network interface ethernet1/1 layer3
+set network interface ethernet1/1 zone external
+set network interface ethernet1/2 layer3
+set network interface ethernet1/2 zone internal
+
+set address PrivIPBlock ip-netmask 10.0.0.0/8
+set address UEcomPrivate ip-netmask 172.20.242.30
+set address UEcomPublic ip-netmask 172.25.33.11
+set address FedWebmailPrivate ip-netmask 172.20.242.40
+set address FedWebmailPublic ip-netmask 172.25.33.39
+set address SplunkPrivate ip-netmask 172.20.242.20
+set address SplunkPublic ip-netmask 172.25.33.39
+
+set service SplunkWeb protocol tcp port 8000
+set service Splunk8089 protocol tcp port 8089
+set service Splunk9997 protocol tcp port 9997
+set service Splunk514 protocol tcp port 514
+set service WebMailSMTP protocol tcp port 25
+set service WebMailPOP3 protocol tcp port 110
+set service WebMailIMAP protocol tcp port 143
+
+delete rulebase security
+set rulebase security rules KillReverse from internal to external source any destination PrivIPBlock application any service application-default action drop
+
+set rulebase security rules AllowICMP from any to any source any destination any application icmp service application-default action allow
+
+set rulebase security rules AllowNTP from internal to external source any destination any application ntp service application-default action allow
+
+set rulebase security rules AllowInternet from internal to external source any destination any application any service service-http action allow
+set rulebase security rules AllowInternet from internal to external source any destination any application any service service-https action allow
+set rulebase security rules AllowInternet profile-setting profiles spyware strict virus default vulnerability default
+
+set rulebase security rules AllowDNSOutbound from internal to external source any destination any application dns service application-default action allow
+set rulebase security rules AllowDNSInbound from external to internal source any destination any application dns service application-default action allow
+
+set rulebase security rules AllowHTTPSInbound from external to internal source any destination UEcomPublic application any service service-http action allow
+set rulebase security rules AllowHTTPSInbound from external to internal source any destination UEcomPublic application any service service-https action allow
+
+set rulebase security rules AllowMailInbound from external to internal source any destination FedWebmailPublic application pop3 service WebMailPOP3 action allow
+set rulebase security rules AllowMailInbound from external to internal source any destination FedWebmailPublic application smtp service WebMailSMTP action allow
+set rulebase security rules AllowMailInbound from external to internal source any destination FedWebmailPublic application imap service WebMailIMAP action allow
+
+set rulebase security rules AllowSplunkCheck from external to internal source any destination SplunkPublic application any service SplunkWeb action allow
+
+set rulebase security rules AllowSplunkInternal from internal to internal source SplunkPrivate destination SplunkPrivate application any service Splunk8089 action allow
+set rulebase security rules AllowSplunkInternal from internal to internal source SplunkPrivate destination SplunkPrivate application any service Splunk9997 action allow
+set rulebase security rules AllowSplunkInternal from internal to internal source SplunkPrivate destination SplunkPrivate application any service Splunk514 action allow
+
+set rulebase security rules AllowEcommInternal from internal to internal source UEcomPrivate destination any application any service service-http action allow
+set rulebase security rules AllowEcommInternal from internal to internal source UEcomPrivate destination any application any service service-https action allow
+
+set rulebase security rules DenyOutDefault from internal to external source any destination any application any service any action deny
+set rulebase security rules DenyInDefault from external to internal source any destination any application any service any action deny
+
+#commit
+#set cli scripting-mode off

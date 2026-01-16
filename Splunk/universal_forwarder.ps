@@ -1,0 +1,149 @@
+# ============================================================
+# Splunk Universal Forwarder (UF) Install + Configure Script
+# Windows PowerShell
+#
+# What it does:
+#  1) Download Splunk UF MSI
+#  2) Silent install to C:\Program Files\SplunkUniversalForwarder
+#  3) Seed admin user/pass (non-interactive)
+#  4) Configure outputs.conf (forward to indexer:9997)
+#  5) Configure inputs.conf (Windows logs + files)
+#  6) Enable service + start UF
+# ============================================================
+
+$ErrorActionPreference = "Stop"
+
+# ----------------------------
+# Variables you SHOULD edit
+# ----------------------------
+$SPLUNK_INDEXER_HOST = "172.20.242.20"
+$SPLUNK_INDEXER_PORT = "9997"
+
+$UF_ADMIN_USER = "admin"
+$UF_ADMIN_PASS = "password1!"   # CHANGE THIS
+
+$SPLUNK_HOME = "C:\Program Files\SplunkUniversalForwarder"
+$DOWNLOAD_DIR = "$env:TEMP\splunk_uf_install"
+
+# UF version + URL (Windows MSI)
+$UF_VER = "10.0.2"
+$UF_MSI_URL = "https://download.splunk.com/products/universalforwarder/releases/10.0.2/windows/splunkforwarder-10.0.2-REPLACE_ME-x64-release.msi"
+$UF_MSI_PATH = "$DOWNLOAD_DIR\splunkforwarder-$UF_VER.msi"
+
+# ----------------------------
+# Helpers
+# ----------------------------
+function Log($msg)  { Write-Host "[+] $msg" }
+function Warn($msg) { Write-Host "[!] $msg" }
+function Die($msg)  { Write-Error "[X] $msg"; exit 1 }
+
+# ----------------------------
+# Pre-flight checks
+# ----------------------------
+if (-not ([Security.Principal.WindowsPrincipal]
+  [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  Die "Must be run as Administrator."
+}
+
+# ----------------------------
+# Download UF MSI
+# ----------------------------
+Log "Preparing download directory..."
+New-Item -ItemType Directory -Force -Path $DOWNLOAD_DIR | Out-Null
+
+if (-not (Test-Path $UF_MSI_PATH)) {
+  Log "Downloading Splunk UF $UF_VER MSI..."
+  Invoke-WebRequest -Uri $UF_MSI_URL -OutFile $UF_MSI_PATH
+}
+
+# ----------------------------
+# Install UF (silent)
+# ----------------------------
+if (-not (Test-Path "$SPLUNK_HOME\bin\splunk.exe")) {
+  Log "Installing Splunk Universal Forwarder..."
+  Start-Process msiexec.exe -Wait -ArgumentList @(
+    "/i `"$UF_MSI_PATH`"",
+    "AGREETOLICENSE=Yes",
+    "INSTALLDIR=`"$SPLUNK_HOME`"",
+    "SPLUNKUSERNAME=$UF_ADMIN_USER",
+    "SPLUNKPASSWORD=$UF_ADMIN_PASS",
+    "DEPLOYMENT_SERVER=",
+    "SERVICESTARTTYPE=auto",
+    "/qn"
+  )
+} else {
+  Log "UF already installed."
+}
+
+# ----------------------------
+# Config paths
+# ----------------------------
+$LOCAL_DIR = "$SPLUNK_HOME\etc\system\local"
+New-Item -ItemType Directory -Force -Path $LOCAL_DIR | Out-Null
+
+# ----------------------------
+# outputs.conf
+# ----------------------------
+Log "Configuring outputs.conf..."
+@"
+[tcpout]
+defaultGroup = primary_indexers
+
+[tcpout:primary_indexers]
+server = $SPLUNK_INDEXER_HOST:$SPLUNK_INDEXER_PORT
+"@ | Set-Content "$LOCAL_DIR\outputs.conf" -Encoding ASCII
+
+# ----------------------------
+# inputs.conf
+# ----------------------------
+Log "Configuring inputs.conf..."
+
+@"
+# Windows Event Logs
+[WinEventLog://Application]
+index = main
+disabled = false
+
+[WinEventLog://System]
+index = main
+disabled = false
+
+[WinEventLog://Security]
+index = main
+disabled = false
+
+# Common Windows log locations
+[monitor://C:\Windows\System32\LogFiles]
+index = main
+disabled = false
+
+[monitor://C:\inetpub\logs]
+index = main
+disabled = false
+"@ | Set-Content "$LOCAL_DIR\inputs.conf" -Encoding ASCII
+
+# ----------------------------
+# Fix permissions (Windows equivalent of chown)
+# ----------------------------
+Log "Fixing permissions on Splunk directory..."
+icacls "$SPLUNK_HOME" /grant "SYSTEM:(OI)(CI)F" /T /C | Out-Null
+
+# ----------------------------
+# Start / restart service
+# ----------------------------
+Log "Starting SplunkForwarder service..."
+Start-Service SplunkForwarder -ErrorAction SilentlyContinue
+
+Start-Sleep -Seconds 5
+
+# ----------------------------
+# Sanity check
+# ----------------------------
+if (Get-Service SplunkForwarder -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq "Running"}) {
+  Log "Splunk Universal Forwarder is running."
+} else {
+  Warn "SplunkForwarder service not running. Check splunkd.log."
+}
+
+Log "Done. Windows UF should now forward logs to $SPLUNK_INDEXER_HOST:$SPLUNK_INDEXER_PORT"

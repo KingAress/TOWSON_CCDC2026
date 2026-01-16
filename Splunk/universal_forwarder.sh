@@ -20,7 +20,7 @@ set -euo pipefail
 # ----------------------------
 # Variables you SHOULD edit
 # ----------------------------
-SPLUNK_INDEXER_HOST="192.168.254.241"
+SPLUNK_INDEXER_HOST="172.20.242.20"
 SPLUNK_INDEXER_PORT="9997"
 
 UF_ADMIN_USER="admin"
@@ -61,6 +61,14 @@ die()  { echo -e "[X] $*" >&2; exit 1; }
 need_root() {
   if [[ ${EUID} -ne 0 ]]; then
     die "Must be run as root (use sudo)."
+  fi
+}
+
+# Ensure UF tree is readable/writable by the splunk user
+fix_permissions() {
+  if [[ -d "$SPLUNK_HOME" ]]; then
+    log "Fixing ownership on $SPLUNK_HOME (chown -R ${SPLUNK_USER}:${SPLUNK_USER})..."
+    chown -R "${SPLUNK_USER}:${SPLUNK_USER}" "$SPLUNK_HOME" || true
   fi
 }
 
@@ -344,7 +352,9 @@ start_uf_first_time
 configure_outputs
 configure_inputs
 enable_boot_start
+fix_permissions
 restart_uf
 show_status
 
 log "Done. UF should now forward logs to ${SPLUNK_INDEXER_HOST}:${SPLUNK_INDEXER_PORT}"
+

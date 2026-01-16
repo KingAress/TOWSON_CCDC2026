@@ -1,10 +1,12 @@
 #!/bin/bash
 # ============================================================
 # Splunk Universal Forwarder (UF) Install + Configure Script
-# Works on: Debian/Ubuntu (deb), RHEL-family (rpm)
+# Works on:
+#   - RHEL-family via RPM
+#   - Debian/Ubuntu via TGZ
 #
 # What it does:
-#  1) Detect OS package type (deb/rpm)
+#  1) Detect install method (rpm vs tgz)
 #  2) Download Splunk UF
 #  3) Install UF to /opt/splunkforwarder
 #  4) Seed first admin user/pass (no interactive prompt)
@@ -18,21 +20,24 @@ set -euo pipefail
 # ----------------------------
 # Variables you SHOULD edit
 # ----------------------------
-SPLUNK_INDEXER_HOST="192.168.254.241"   # <-- your Splunk server LAN IP
+SPLUNK_INDEXER_HOST="192.168.254.241"
 SPLUNK_INDEXER_PORT="9997"
 
-UF_ADMIN_USER="admin"                   # Forwarder local admin (for CLI auth if needed)
+UF_ADMIN_USER="admin"
 UF_ADMIN_PASS="password1!"              # Change this
 
-SPLUNK_USER="splunk"                    # OS account to run UF
+SPLUNK_USER="splunk"
 SPLUNK_HOME="/opt/splunkforwarder"
 DOWNLOAD_DIR="/tmp/splunk_uf_install"
 
-# Pick UF version + URLs (match what you used)
-UF_VER="9.1.1"
-# These are the same builds you referenced earlier:
-UF_DEB_URL="https://download.splunk.com/products/universalforwarder/releases/9.1.1/linux/splunkforwarder-9.1.1-64e843ea36b1-linux-2.6-amd64.deb"
-UF_RPM_URL="https://download.splunk.com/products/universalforwarder/releases/9.1.1/linux/splunkforwarder-9.1.1-64e843ea36b1.x86_64.rpm"
+# ----------------------------
+# UF version + URLs
+# ----------------------------
+UF_VER="10.0.2"
+
+# UF 10.0.2 URLs (EDIT THESE to match your exact Splunk build/arch)
+UF_TGZ_URL="https://download.splunk.com/products/universalforwarder/releases/10.0.2/linux/splunkforwarder-10.0.2-REPLACE_ME-linux-2.6-x86_64.tgz"
+UF_RPM_URL="https://download.splunk.com/products/universalforwarder/releases/10.0.2/linux/splunkforwarder-10.0.2-REPLACE_ME.x86_64.rpm"
 
 # Monitors to add (script will only monitor files/dirs that exist)
 MONITOR_PATHS=(
@@ -59,34 +64,49 @@ need_root() {
   fi
 }
 
-detect_pkg_type() {
-  if command -v dpkg >/dev/null 2>&1; then
-    echo "deb"
-  elif command -v rpm >/dev/null 2>&1; then
+# Detect install method:
+# - Prefer RPM if rpm tooling exists (RHEL-family)
+# - Otherwise use TGZ (Debian/Ubuntu or minimal distros)
+detect_install_method() {
+  if command -v rpm >/dev/null 2>&1; then
     echo "rpm"
   else
-    die "Neither dpkg nor rpm found. Unsupported system."
+    echo "tgz"
   fi
 }
 
 ensure_tools() {
-  # We need wget or curl
-  if command -v wget >/dev/null 2>&1; then
-    return 0
-  fi
-  if command -v curl >/dev/null 2>&1; then
-    return 0
+  # Need wget or curl; and tar for tgz
+  local method="$1"
+
+  if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
+    warn "Neither wget nor curl found; installing downloader..."
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get update -y
+      apt-get install -y wget || apt-get install -y curl
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf install -y wget || dnf install -y curl
+    elif command -v yum >/dev/null 2>&1; then
+      yum install -y wget || yum install -y curl
+    else
+      die "Could not install wget/curl (no supported package manager found)."
+    fi
   fi
 
-  local pkgtype="$1"
-  warn "Neither wget nor curl found; installing downloader..."
-  if [[ "$pkgtype" == "deb" ]]; then
-    apt-get update -y
-    apt-get install -y wget || apt-get install -y curl
-  else
-    (command -v dnf >/dev/null 2>&1 && dnf install -y wget) || \
-    (command -v yum >/dev/null 2>&1 && yum install -y wget) || \
-    die "Could not install wget via yum/dnf."
+  if [[ "$method" == "tgz" ]]; then
+    if ! command -v tar >/dev/null 2>&1; then
+      warn "tar not found; installing tar..."
+      if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y
+        apt-get install -y tar
+      elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y tar
+      elif command -v yum >/dev/null 2>&1; then
+        yum install -y tar
+      else
+        die "Could not install tar (no supported package manager found)."
+      fi
+    fi
   fi
 }
 
@@ -117,8 +137,6 @@ ensure_splunk_user() {
 }
 
 seed_first_admin_if_needed() {
-  # Splunk UF will prompt for admin creation at first start unless seeded.
-  # We only seed if no passwd file exists yet (first init).
   local passwd_file="$SPLUNK_HOME/etc/passwd"
   local local_dir="$SPLUNK_HOME/etc/system/local"
   local seed_file="$local_dir/user-seed.conf"
@@ -141,11 +159,9 @@ EOF
 }
 
 start_uf_first_time() {
-  # Start UF non-interactively
   log "Starting Splunk UF (accept license, no prompt)..."
   chown -R "$SPLUNK_USER:$SPLUNK_USER" "$SPLUNK_HOME" || true
 
-  # --answer-yes + --no-prompt prevents hanging on prompts
   sudo -u "$SPLUNK_USER" "$SPLUNK_HOME/bin/splunk" start --accept-license --answer-yes --no-prompt >/dev/null 2>&1 || true
 
   if "$SPLUNK_HOME/bin/splunk" status >/dev/null 2>&1; then
@@ -168,10 +184,6 @@ defaultGroup = primary_indexers
 
 [tcpout:primary_indexers]
 server = ${SPLUNK_INDEXER_HOST}:${SPLUNK_INDEXER_PORT}
-
-# Optional: keep some buffering if the indexer is temporarily unreachable
-# (adjust to taste for competition environments)
-#[tcpout-server://${SPLUNK_INDEXER_HOST}:${SPLUNK_INDEXER_PORT}]
 EOF
 
   chown -R "$SPLUNK_USER:$SPLUNK_USER" "$local_dir" || true
@@ -184,7 +196,6 @@ configure_inputs() {
   log "Writing inputs.conf (monitor common logs if present)..."
   mkdir -p "$local_dir"
 
-  # Start a fresh inputs.conf so your runs are repeatable
   cat > "$inputs" <<'EOF'
 # Autogenerated by UF install script
 # Only monitors paths that exist on this host.
@@ -213,7 +224,6 @@ EOF
 }
 
 enable_boot_start() {
-  # This sets up systemd unit management for Splunk UF
   log "Enabling UF boot-start (systemd-managed)..."
   "$SPLUNK_HOME/bin/splunk" enable boot-start -user "$SPLUNK_USER" --systemd-managed >/dev/null 2>&1 || true
 
@@ -248,30 +258,68 @@ show_status() {
   echo "     tail -f $SPLUNK_HOME/var/log/splunk/splunkd.log | egrep 'TcpOutputProc|Connected|connect|WARN|ERROR'"
 }
 
-install_uf() {
-  local pkgtype="$1"
+# ----------------------------
+# Install UF
+# ----------------------------
+install_uf_rpm() {
   mkdir -p "$DOWNLOAD_DIR"
-  cd "$DOWNLOAD_DIR"
+  local rpm_file="$DOWNLOAD_DIR/splunkforwarder-${UF_VER}.rpm"
+
+  log "Downloading UF (rpm)..."
+  download_file "$UF_RPM_URL" "$rpm_file"
+
+  log "Installing UF RPM..."
+  # Prefer package manager if available
+  if command -v dnf >/dev/null 2>&1; then
+    dnf -y install "$rpm_file"
+  elif command -v yum >/dev/null 2>&1; then
+    yum -y install "$rpm_file"
+  else
+    rpm -i "$rpm_file"
+  fi
+}
+
+install_uf_tgz() {
+  mkdir -p "$DOWNLOAD_DIR"
+  local tgz_file="$DOWNLOAD_DIR/splunkforwarder-${UF_VER}.tgz"
+
+  log "Downloading UF (tgz)..."
+  download_file "$UF_TGZ_URL" "$tgz_file"
+
+  # If UF already exists, back it up instead of clobbering
+  if [[ -d "$SPLUNK_HOME" ]]; then
+    local ts
+    ts="$(date +%Y%m%d_%H%M%S)"
+    warn "Existing $SPLUNK_HOME found. Moving to ${SPLUNK_HOME}.bak.${ts}"
+    # Try to stop cleanly if it's a valid UF
+    if [[ -x "$SPLUNK_HOME/bin/splunk" ]]; then
+      "$SPLUNK_HOME/bin/splunk" stop >/dev/null 2>&1 || true
+    fi
+    mv "$SPLUNK_HOME" "${SPLUNK_HOME}.bak.${ts}"
+  fi
+
+  log "Extracting TGZ to /opt..."
+  tar -xzf "$tgz_file" -C /opt
+
+  if ! uf_installed; then
+    die "TGZ install finished but $SPLUNK_HOME/bin/splunk not found."
+  fi
+}
+
+install_uf() {
+  local method="$1"
 
   if uf_installed; then
     log "UF already installed at $SPLUNK_HOME"
     return 0
   fi
 
-  ensure_tools "$pkgtype"
+  ensure_tools "$method"
 
-  if [[ "$pkgtype" == "deb" ]]; then
-    local deb_file="$DOWNLOAD_DIR/splunkforwarder-${UF_VER}.deb"
-    log "Downloading UF (deb)..."
-    download_file "$UF_DEB_URL" "$deb_file"
-    log "Installing UF package..."
-    dpkg -i "$deb_file" || (apt-get update -y && apt-get -f install -y)
+  if [[ "$method" == "rpm" ]]; then
+    install_uf_rpm
   else
-    local rpm_file="$DOWNLOAD_DIR/splunkforwarder-${UF_VER}.rpm"
-    log "Downloading UF (rpm)..."
-    download_file "$UF_RPM_URL" "$rpm_file"
-    log "Installing UF package..."
-    rpm -i "$rpm_file"
+    install_uf_tgz
   fi
 
   if ! uf_installed; then
@@ -286,10 +334,10 @@ install_uf() {
 # ----------------------------
 need_root
 
-PKG_TYPE="$(detect_pkg_type)"
-log "Detected package type: $PKG_TYPE"
+INSTALL_METHOD="$(detect_install_method)"
+log "Detected install method: $INSTALL_METHOD"
 
-install_uf "$PKG_TYPE"
+install_uf "$INSTALL_METHOD"
 ensure_splunk_user
 seed_first_admin_if_needed
 start_uf_first_time

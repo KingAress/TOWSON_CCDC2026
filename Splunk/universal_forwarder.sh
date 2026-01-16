@@ -266,6 +266,14 @@ show_status() {
   echo "     tail -f $SPLUNK_HOME/var/log/splunk/splunkd.log | egrep 'TcpOutputProc|Connected|connect|WARN|ERROR'"
 }
 
+self_destruct() {
+  local script_path
+  script_path="$(readlink -f "$0")"
+
+  log "Self-destructing script: $script_path"
+  rm -f "$script_path" || true
+}
+
 # ----------------------------
 # Install UF
 # ----------------------------
@@ -358,3 +366,4 @@ show_status
 
 log "Done. UF should now forward logs to ${SPLUNK_INDEXER_HOST}:${SPLUNK_INDEXER_PORT}"
 
+self_destruct

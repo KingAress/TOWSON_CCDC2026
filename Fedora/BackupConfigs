@@ -1,0 +1,71 @@
+#!/bin/bash
+set -e
+# untested
+
+
+TS=$(date +%F_%H%M%S) 
+BACKUP_DIR="/root/config_backup_$TS"
+mkdir -p "$BACKUP_DIR"
+
+echo "Backup directory: $BACKUP_DIR"
+
+echo "Backing up System..."
+mkdir -p $BACKUP_DIR/system
+cp -a /etc/passwd /etc/group /etc/shadow /etc/gshadow $BACKUP_DIR/system/
+cp -a /etc/sudoers /etc/sudoers.d $BACKUP_DIR/system/ 2>/dev/null || true
+cp -a /etc/fstab $BACKUP_DIR/system/
+cp -a /etc/cron* $BACKUP_DIR/system/
+cp -a /etc/systemd/system $BACKUP_DIR/system/
+
+echo "Backing up ssh..."
+mkdir -p $BACKUP_DIR/ssh
+cp -a /etc/ssh $BACKUP_DIR/ssh/
+cp -a /root/.ssh $BACKUP_DIR/ssh/root_ssh 2>/dev/null || true
+for d in /home/*/.ssh; do
+  [ -d "$d" ] && cp -a "$d" "$BACKUP_DIR/ssh/"
+done
+
+echo "Backing up firewall..."
+mkdir -p $BACKUP_DIR/firewall
+if systemctl is-active firewalld >/dev/null 2>&1; then
+  firewall-cmd --list-all-zones > $BACKUP_DIR/firewall/firewalld_zones.txt
+  cp -a /etc/firewalld $BACKUP_DIR/firewall/
+fi
+
+echo "Backing up posfix..."
+mkdir -p $BACKUP_DIR/postfix
+cp -a /etc/postfix $BACKUP_DIR/postfix/
+postconf -n > $BACKUP_DIR/postfix/postfix_active.conf
+
+echo "Backing up dovecot..."
+mkdir -p $BACKUP_DIR/dovecot
+cp -a /etc/dovecot $BACKUP_DIR/dovecot/
+dovecot -n > $BACKUP_DIR/dovecot/dovecot_active.conf
+
+echo "Backing up ssl..."
+mkdir -p $BACKUP_DIR/ssl
+cp -a /etc/pki $BACKUP_DIR/ssl/ 2>/dev/null || true
+
+echo "Backing up mariadb..."
+mkdir -p $BACKUP_DIR/mariadb
+cp -a /etc/my.cnf* $BACKUP_DIR/mariadb/ 2>/dev/null || true
+mysqldump -u root --protocol=socket --all-databases \
+  > $BACKUP_DIR/mariadb/mariadb_dump.sql 2>/dev/null || true
+
+echo "Backing up network..."
+mkdir -p $BACKUP_DIR/network
+ip addr > $BACKUP_DIR/network/ip_addr.txt
+ip route > $BACKUP_DIR/network/ip_route.txt
+ss -tulnp > $BACKUP_DIR/network/listening_ports.txt
+
+echo "Backing up SELinux..."
+getenforce > $BACKUP_DIR/system/selinux_mode.txt
+semanage boolean -l > $BACKUP_DIR/system/selinux_booleans.txt 2>/dev/null || true
+
+echo "Backing up service audit..."
+systemctl list-unit-files --state=enabled > $BACKUP_DIR/system/enabled_services.txt
+systemctl list-units --type=service --state=running > $BACKUP_DIR/system/running_services.txt
+
+echo "Creating .tar..."
+tar -czf /root/config_backup_$TS.tar.gz -C /root config_backup_$TS
+echo "Done! Location: /root/config_backup_$TS.tar.gz"

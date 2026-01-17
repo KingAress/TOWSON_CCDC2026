@@ -36,8 +36,8 @@ DOWNLOAD_DIR="/tmp/splunk_uf_install"
 UF_VER="10.0.2"
 
 # UF 10.0.2 URLs (EDIT THESE to match your exact Splunk build/arch)
-UF_TGZ_URL="https://download.splunk.com/products/universalforwarder/releases/10.0.2/linux/splunkforwarder-10.0.2-REPLACE_ME-linux-2.6-x86_64.tgz"
-UF_RPM_URL="https://download.splunk.com/products/universalforwarder/releases/10.0.2/linux/splunkforwarder-10.0.2-REPLACE_ME.x86_64.rpm"
+UF_TGZ_URL="https://download.splunk.com/products/universalforwarder/releases/10.2.0/linux/splunkforwarder-10.2.0-d749cb17ea65-linux-amd64.deb"
+UF_RPM_URL="https://download.splunk.com/products/universalforwarder/releases/10.2.0/linux/splunkforwarder-10.2.0-d749cb17ea65.x86_64.rpm"
 
 # Monitors to add (script will only monitor files/dirs that exist)
 MONITOR_PATHS=(
@@ -295,32 +295,35 @@ install_uf_rpm() {
   fi
 }
 
-install_uf_tgz() {
+install_uf_deb() {
   mkdir -p "$DOWNLOAD_DIR"
-  local tgz_file="$DOWNLOAD_DIR/splunkforwarder-${UF_VER}.tgz"
+  local deb_file="$DOWNLOAD_DIR/splunkforwarder-${UF_VER}.deb"
 
-  log "Downloading UF (tgz)..."
-  download_file "$UF_TGZ_URL" "$tgz_file"
+  log "Downloading UF (.deb)..."
+  download_file "$UF_DEB_URL" "$deb_file"
 
-  # If UF already exists, back it up instead of clobbering
-  if [[ -d "$SPLUNK_HOME" ]]; then
-    local ts
-    ts="$(date +%Y%m%d_%H%M%S)"
-    warn "Existing $SPLUNK_HOME found. Moving to ${SPLUNK_HOME}.bak.${ts}"
-    # Try to stop cleanly if it's a valid UF
-    if [[ -x "$SPLUNK_HOME/bin/splunk" ]]; then
-      "$SPLUNK_HOME/bin/splunk" stop >/dev/null 2>&1 || true
-    fi
-    mv "$SPLUNK_HOME" "${SPLUNK_HOME}.bak.${ts}"
+  # If UF already exists, stop it cleanly before reinstalling
+  if [[ -x "$SPLUNK_HOME/bin/splunk" ]]; then
+    warn "Existing UF detected. Stopping before reinstall..."
+    "$SPLUNK_HOME/bin/splunk" stop >/dev/null 2>&1 || true
   fi
 
-  log "Extracting TGZ to /opt..."
-  tar -xzf "$tgz_file" -C /opt
+  log "Installing UF via dpkg..."
+  dpkg -i "$deb_file" || true
+
+  # Fix missing dependencies automatically
+  if command -v apt-get >/dev/null 2>&1; then
+    log "Resolving dependencies (apt-get -f install)..."
+    apt-get -y -f install
+  fi
 
   if ! uf_installed; then
-    die "TGZ install finished but $SPLUNK_HOME/bin/splunk not found."
+    die "DEB install finished but $SPLUNK_HOME/bin/splunk not found."
   fi
+
+  log "UF installed successfully via .deb."
 }
+
 
 install_uf() {
   local method="$1"
@@ -335,7 +338,7 @@ install_uf() {
   if [[ "$method" == "rpm" ]]; then
     install_uf_rpm
   else
-    install_uf_tgz
+    install_uf_deb
   fi
 
   if ! uf_installed; then
@@ -367,3 +370,4 @@ show_status
 log "Done. UF should now forward logs to ${SPLUNK_INDEXER_HOST}:${SPLUNK_INDEXER_PORT}"
 
 self_destruct
+

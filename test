@@ -1,0 +1,53 @@
+import time
+import socket
+from collections import defaultdict
+from statistics import stdev
+from scapy.all import sniff, UDP, IP
+import psutil
+import platform
+
+# ================= CONFIGURATION =================
+CAPTURE_DURATION = 300        # seconds
+MIN_PACKETS = 6               # minimum packets to analyze
+STDDEV_THRESHOLD = 1.5        # low stddev = periodic
+IGNORE_LOCAL = True
+# =================================================
+
+flows = defaultdict(list)
+
+def is_private(ip):
+    return ip.startswith(("10.", "192.168.", "172."))
+
+def packet_handler(pkt):
+    if IP in pkt and UDP in pkt:
+        dst = pkt[IP].dst
+        dport = pkt[UDP].dport
+
+        if IGNORE_LOCAL and is_private(dst):
+            return
+
+        key = (dst, dport)
+        flows[key].append(time.time())
+
+def analyze_flows():
+    print("\n=== UDP Beaconing Analysis ===")
+    for (dst, port), times in flows.items():
+        if len(times) < MIN_PACKETS:
+            continue
+
+        intervals = [t2 - t1 for t1, t2 in zip(times, times[1:])]
+        if len(intervals) < 2:
+            continue
+
+        deviation = stdev(intervals)
+
+        if deviation < STDDEV_THRESHOLD:
+            print(f"[SUSPICIOUS] Possible UDP beaconing detected")
+            print(f"  Destination: {dst}:{port}")
+            print(f"  Packets: {len(times)}")
+            print(f"  Interval StdDev: {deviation:.2f}")
+            print(f"  Average Interval: {sum(intervals)/len(intervals):.2f}s\n")
+
+print(f"[*] Starting UDP capture on {platform.system()} for {CAPTURE_DURATION}s...")
+sniff(filter="udp", prn=packet_handler, store=False, timeout=CAPTURE_DURATION)
+analyze_flows()

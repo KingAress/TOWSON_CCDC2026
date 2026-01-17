@@ -1,0 +1,191 @@
+<dashboard version="1.1" theme="light">
+  <label>CCDC Dashboard</label>
+  <description>
+    CCDC Dashboard provides a quick-check view of Linux system activity using data from core operating system and service log files, including /var/log/syslog, /var/log/messages, /var/log/auth.log, /var/log/secure, /var/log/httpd/*, /var/log/mysql.log, and /var/log/mysqld.log. The dashboard is intended to support rapid verification and triage by showing whether logs are flowing, highlighting SSH failures or unexpected logins, surfacing cron execution activity, and exposing firewall drops or service errors from web and database components. It relies on the global time range to allow fast pivots during testing or competition scenarios, prioritizing reliability and immediate visibility over complex filtering or customization.
+  </description>
+
+  <!-- No fieldset / no inputs on purpose: eliminates token parsing issues -->
+  <row>
+    <panel>
+      <title>Data Freshness by Host (Last Seen)</title>
+      <table>
+        <search>
+          <query>
+            index=*
+            | stats count as events, latest(_time) as last_seen by host
+            | eval last_seen=strftime(last_seen,"%Y-%m-%d %H:%M:%S")
+            | sort -events
+          </query>
+        </search>
+        <option name="count">20</option>
+      </table>
+    </panel>
+
+    <panel>
+      <title>Top Sources (What Splunk is ingesting)</title>
+      <table>
+        <search>
+          <query>
+            index=*
+            | stats count as events by host, source
+            | sort -events
+          </query>
+        </search>
+        <option name="count">20</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Auth Logs (auth.log / secure) — Recent Events</title>
+      <event>
+        <search>
+          <query>
+            index=* (source="/var/log/auth.log" OR source="/var/log/secure")
+            | sort -_time
+          </query>
+        </search>
+        <option name="count">20</option>
+        <option name="maxLines">6</option>
+        <option name="raw.drilldown">full</option>
+      </event>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>SSH Failures (auth.log / secure)</title>
+      <table>
+        <search>
+          <query>
+            index=* (source="/var/log/auth.log" OR source="/var/log/secure") (sshd OR ssh)
+            ("Failed password" OR "Invalid user" OR "authentication failure" OR "Failed publickey")
+            | rex field=_raw "Invalid user (?&lt;inv_user&gt;\S+)"
+            | rex field=_raw "Failed password for (invalid user )?(?&lt;fail_user&gt;\S+)"
+            | rex field=_raw "from (?&lt;src_ip&gt;[0-9\.]+)"
+            | eval user=coalesce(fail_user,inv_user,"unknown")
+            | eval src=coalesce(src_ip,"unknown")
+            | stats count as attempts, latest(_time) as last_time by host, user, src
+            | eval last_time=strftime(last_time,"%Y-%m-%d %H:%M:%S")
+            | sort -attempts
+          </query>
+        </search>
+        <option name="count">15</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+
+    <panel>
+      <title>SSH Success (auth.log / secure)</title>
+      <table>
+        <search>
+          <query>
+            index=* (source="/var/log/auth.log" OR source="/var/log/secure") (sshd OR ssh)
+            ("Accepted password" OR "Accepted publickey")
+            | rex field=_raw "Accepted (password|publickey) for (?&lt;user&gt;\S+)"
+            | rex field=_raw "from (?&lt;src_ip&gt;[0-9\.]+)"
+            | eval user=coalesce(user,"unknown")
+            | eval src=coalesce(src_ip,"unknown")
+            | stats count as logins, latest(_time) as last_time by host, user, src
+            | eval last_time=strftime(last_time,"%Y-%m-%d %H:%M:%S")
+            | sort -logins
+          </query>
+        </search>
+        <option name="count">15</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Cron Activity (syslog/messages/auth/secure)</title>
+      <table>
+        <search>
+          <query>
+            index=* (source="/var/log/syslog" OR source="/var/log/messages" OR source="/var/log/auth.log" OR source="/var/log/secure")
+            ("CRON" OR "cron" OR "crond" OR "crontab")
+            | stats count as events, latest(_time) as last_time, values(source) as sources by host
+            | eval last_time=strftime(last_time,"%Y-%m-%d %H:%M:%S")
+            | sort -events
+          </query>
+        </search>
+        <option name="count">15</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+
+    <panel>
+      <title>Firewall / Drops (common patterns)</title>
+      <table>
+        <search>
+          <query>
+            index=* (source="/var/log/syslog" OR source="/var/log/messages" OR source="/var/log/auth.log" OR source="/var/log/secure")
+            ("UFW BLOCK" OR "UFW DENY" OR "DROP" OR "REJECT" OR "denied" OR "iptables" OR "firewalld")
+            | rex field=_raw "SRC=(?&lt;src_ip&gt;[0-9\.]+)"
+            | rex field=_raw "DPT=(?&lt;dpt&gt;\d+)"
+            | stats count as hits, latest(_time) as last_time, values(dpt) as ports, values(src_ip) as src_ips by host
+            | eval last_time=strftime(last_time,"%Y-%m-%d %H:%M:%S")
+            | sort -hits
+          </query>
+        </search>
+        <option name="count">15</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>HTTP Status Errors (4xx/5xx)</title>
+      <table>
+        <search>
+          <query>
+            index=* (source="/var/log/httpd/"* OR source="/var/log/apache2/"* OR sourcetype=apache:* OR sourcetype=httpd*)
+            (" 401 " OR " 403 " OR " 404 " OR " 500 " OR " 502 " OR " 503 ")
+            | stats count as errors, values(source) as sources by host
+            | sort -errors
+          </query>
+        </search>
+        <option name="count">15</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+
+    <panel>
+      <title>MySQL Errors / Access Denied</title>
+      <table>
+        <search>
+          <query>
+            index=* (source="/var/log/mysql.log" OR source="/var/log/mysqld.log" OR source=*mysql* OR source=*mysqld*)
+            ("ERROR" OR "error" OR "WARNING" OR "warning" OR "Access denied" OR "denied")
+            | stats count as events, latest(_time) as last_time, values(source) as sources by host
+            | eval last_time=strftime(last_time,"%Y-%m-%d %H:%M:%S")
+            | sort -events
+          </query>
+        </search>
+        <option name="count">15</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Raw Events (Most Recent)</title>
+      <event>
+        <search>
+          <query>
+            index=* | sort -_time
+          </query>
+        </search>
+        <option name="count">25</option>
+        <option name="maxLines">6</option>
+        <option name="raw.drilldown">full</option>
+      </event>
+    </panel>
+  </row>
+
+</dashboard>

@@ -1,5 +1,5 @@
-echo "Stopping, disabling, and masking sshd" 
-systemctl stop sshd 2>/dev/null && systemctl disable sshd 2>/dev/null && systemctl mask sshd 2>/dev/null
+#echo "Stopping, disabling, and masking sshd" 
+#systemctl stop sshd 2>/dev/null && systemctl disable sshd 2>/dev/null && systemctl mask sshd 2>/dev/null
 
 echo "Stopping, disabling, and masking telnet.socket" 
 systemctl stop telnet.socket 2>/dev/null && systemctl disable telnet.socket 2>/dev/null && systemctl mask telnet.socket 2>/dev/null

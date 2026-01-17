@@ -123,3 +123,24 @@ $autoplay  = Test-AutoPlayEnabled
 $telnet    = Get-TelnetServiceState
 $msdt      = Test-MSDTProtocolEnabled
 $timestamp = (Get-Date).ToString('s')  # ISO 8601 (sortable)
+
+
+$reportPath = "$OutDir\$hostName-Report.csv"
+
+$reportData = [PSCustomObject]@{
+    Hostname                = $hostName
+    OSVersion               = $osVersion
+    SMBv1Enabled            = $smb1
+    LLMNREnabled            = $llmnr
+    NTLMv1Allowed           = $ntlmv1
+    NetBIOSoverTcpipEnabled = $netbios
+    AutoPlayEnabled         = $autoplay
+    TelnetInstalled         = $telnet.Installed
+    TelnetRunning           = $telnet.Running
+    MSDTProtocolEnabled     = $msdt
+    Timestamp               = $timestamp
+}
+
+$reportData | Export-Csv -Path $reportPath -NoTypeInformation
+
+Write-Host "Saved to: $reportPath"

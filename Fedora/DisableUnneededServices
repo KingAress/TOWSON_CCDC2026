@@ -1,0 +1,24 @@
+echo "Stopping, disabling, and masking sshd" 
+systemctl stop sshd 2>/dev/null && systemctl disable sshd 2>/dev/null && systemctl mask sshd 2>/dev/null
+
+echo "Stopping, disabling, and masking telnet.socket" 
+systemctl stop telnet.socket 2>/dev/null && systemctl disable telnet.socket 2>/dev/null && systemctl mask telnet.socket 2>/dev/null
+
+echo "Stopping, disabling, and masking rsh.socket" 
+systemctl stop rsh.socket 2>/dev/null && systemctl disable rsh.socket 2>/dev/null && systemctl mask rsh.socket 2>/dev/null
+
+echo "Stopping, disabling, and masking rsyncd" 
+systemctl stop rsyncd 2>/dev/null && systemctl disable rsyncd 2>/dev/null && systemctl mask rsyncd 2>/dev/null
+
+echo "Stopping, disabling, and masking cockpit" 
+systemctl stop cockpit 2>/dev/null && systemctl disable cockpit 2>/dev/null && systemctl mask cockpit 2>/dev/null
+
+echo "Stopping, disabling, and masking cockpit.socket" 
+systemctl stop cockpit.socket 2>/dev/null && systemctl disable cockpit.socket 2>/dev/null && systemctl mask cockpit.socket 2>/dev/null
+
+echo "Removing services"
+dnf -y remove telnet-server rsh-server rsync cockpit
+dnf -y autoremove
+# openssh-server left out intentionally...
+
+

@@ -26,23 +26,24 @@ $SPLUNK_HOME = "C:\Program Files\SplunkUniversalForwarder"
 $DOWNLOAD_DIR = "$env:TEMP\splunk_uf_install"
 
 # UF version + URL (Windows MSI)
+# Fixed: Added the correct build hash "e2d18b4767e9" for v10.0.2
 $UF_VER = "10.0.2"
-$UF_MSI_URL = "https://download.splunk.com/products/universalforwarder/releases/10.0.2/windows/splunkforwarder-10.0.2-REPLACE_ME-x64-release.msi"
+$UF_MSI_URL = "https://download.splunk.com/products/universalforwarder/releases/10.0.2/windows/splunkforwarder-10.0.2-e2d18b4767e9-windows-x64.msi"
 $UF_MSI_PATH = "$DOWNLOAD_DIR\splunkforwarder-$UF_VER.msi"
 
 # ----------------------------
 # Helpers
 # ----------------------------
-function Log($msg)  { Write-Host "[+] $msg" }
-function Warn($msg) { Write-Host "[!] $msg" }
+function Log($msg)  { Write-Host "[+] $msg" -ForegroundColor Green }
+function Warn($msg) { Write-Host "[!] $msg" -ForegroundColor Yellow }
 function Die($msg)  { Write-Error "[X] $msg"; exit 1 }
 
 # ----------------------------
 # Pre-flight checks
 # ----------------------------
-if (-not ([Security.Principal.WindowsPrincipal]
-  [Security.Principal.WindowsIdentity]::GetCurrent()
-).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+# Fixed: Combined into single line to avoid parser errors
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
   Die "Must be run as Administrator."
 }
 
@@ -54,7 +55,8 @@ New-Item -ItemType Directory -Force -Path $DOWNLOAD_DIR | Out-Null
 
 if (-not (Test-Path $UF_MSI_PATH)) {
   Log "Downloading Splunk UF $UF_VER MSI..."
-  Invoke-WebRequest -Uri $UF_MSI_URL -OutFile $UF_MSI_PATH
+  # Added specific UserAgent to avoid some 403 errors on strict servers
+  Invoke-WebRequest -Uri $UF_MSI_URL -OutFile $UF_MSI_PATH -UserAgent "PowerShell"
 }
 
 # ----------------------------
@@ -86,12 +88,14 @@ New-Item -ItemType Directory -Force -Path $LOCAL_DIR | Out-Null
 # outputs.conf
 # ----------------------------
 Log "Configuring outputs.conf..."
+
+# Fixed: Used ${VAR} syntax to safely separate variable from colon
 @"
 [tcpout]
 defaultGroup = primary_indexers
 
 [tcpout:primary_indexers]
-server = $SPLUNK_INDEXER_HOST:$SPLUNK_INDEXER_PORT
+server = ${SPLUNK_INDEXER_HOST}:${SPLUNK_INDEXER_PORT}
 "@ | Set-Content "$LOCAL_DIR\outputs.conf" -Encoding ASCII
 
 # ----------------------------
@@ -123,9 +127,7 @@ index = main
 disabled = false
 "@ | Set-Content "$LOCAL_DIR\inputs.conf" -Encoding ASCII
 
-# ----------------------------
-# Fix permissions (Windows equivalent of chown)
-# ----------------------------
+
 Log "Fixing permissions on Splunk directory..."
 icacls "$SPLUNK_HOME" /grant "SYSTEM:(OI)(CI)F" /T /C | Out-Null
 
@@ -146,4 +148,4 @@ if (Get-Service SplunkForwarder -ErrorAction SilentlyContinue | Where-Object {$_
   Warn "SplunkForwarder service not running. Check splunkd.log."
 }
 
-Log "Done. Windows UF should now forward logs to $SPLUNK_INDEXER_HOST:$SPLUNK_INDEXER_PORT"
+Log "Done. Windows UF should now forward logs to ${SPLUNK_INDEXER_HOST}:${SPLUNK_INDEXER_PORT}"
